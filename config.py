@@ -27,7 +27,7 @@ topics = {
     'sub_id': b'pwr/' + cfg['mac'] + '/cup',          # Here commands fo shield
     'sub_ping': b'pwr/all/ping',    # Here pings for shield
     'pub': b'ask/pwr/all/cup',      # Here start config request 
-    'pub_state': : b'ask/pwr/all/sup', # Here changes of state
+    'pub_state': b'ask/pwr/all/sup', # Here changes of state
     'pub_id_pong': b'ask/pwr/' + cfg['mac'] + '/pong'     # Here answers for ping
 }
 

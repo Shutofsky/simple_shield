@@ -1,5 +1,6 @@
 import machine
 import time
+import utime
 import ujson
 import network
 import urandom
@@ -12,7 +13,9 @@ station = network.WLAN(network.STA_IF)
 manage_data = dict()
 manage_data['mqtt_connect'] = False
 manage_data['powerstate'] =  'OFF'
-ping_msg = b''
+manage_data['ping_msg'] = b''
+manage_data['ping_timestamp'] = 0 
+manage_data['ping_millis'] = 0
 
 def wifi_init():
     station.active(True)
@@ -31,7 +34,8 @@ def reset_out():
     for pin_ctrl in config.pins:
         config.pins[pin_ctrl].value(0)
 
-def parse_command(new_command, client):
+def parse_command(new_command):
+    print(new_command)
     data = new_command.get('powerstate') 
     print(data)
     if not data:
@@ -39,9 +43,10 @@ def parse_command(new_command, client):
     if data == 'RESET':
         machine.reset()
     else:
-        change_state(data, client, 0)
+        change_state(data, 0)
 
-def change_state(power_state, client, inner_flag):
+def change_state(power_state, inner_flag):
+    global client
     print(power_state, manage_data['powerstate'])
     if power_state == 'AUX' and manage_data['powerstate'] !='AUX': 
         manage_data['powerstate'] ='AUX'
@@ -50,7 +55,8 @@ def change_state(power_state, client, inner_flag):
         time.sleep(2)
         config.pins['RELAY_POWER'].value(0)
         if inner_flag:
-            t_com = '{"timestamp":0, "datahold":{"powerstate":"AUX"}}'
+            ts_tmp = manage_data['ping_timestamp'] + int((utime.ticks_ms() - manage_data['ping_millis'])/1000)
+            t_com = '{"timestamp":' + str(ts_tmp) + ', "datahold":{"powerstate":"AUX"}}'
             client.publish(config.topics['pub_state'], t_com)
         time.sleep(1)
         config.pins['RELAY_POWER'].value(1)
@@ -72,7 +78,8 @@ def change_state(power_state, client, inner_flag):
         config.pins['RELAY_POWER'].value(0)
         config.pins['KBD_POWER'].value(1)
         if inner_flag:
-            t_com = '{"timestamp":0, "datahold":{"powerstate":"PWR"}}'
+            ts_tmp = manage_data['ping_timestamp'] + int((utime.ticks_ms() - manage_data['ping_millis'])/1000)
+            t_com = '{"timestamp":' + str(ts_tmp) + ', "datahold":{"powerstate":"PWR"}}'
             client.publish(config.topics['pub_state'], t_com)
     elif power_state == 'OFF' and manage_data['powerstate'] !='OFF':
         manage_data['powerstate'] ='OFF'
@@ -80,7 +87,8 @@ def change_state(power_state, client, inner_flag):
         config.pins['RELAY_POWER'].value(0)
         config.pins['KBD_POWER'].value(0)
         if inner_flag:
-            t_com = '{"timestamp":0, "datahold":{"powerstate":"OFF"}}'
+            ts_tmp = manage_data['ping_timestamp'] + int((utime.ticks_ms() - manage_data['ping_millis'])/1000)
+            t_com = '{"timestamp":' + str(ts_tmp) + ', "datahold":{"powerstate":"OFF"}}'     
             client.publish(config.topics['pub_state'], t_com)
 
 def mqtt_callback(topic, msg):
@@ -89,13 +97,14 @@ def mqtt_callback(topic, msg):
         try:
             cmd = ujson.loads(msg)
             datahold = cmd.get('datahold')
-            parse_command(datahold, client)
+            print(datahold)
+            parse_command(datahold)
             return 
         except:
             time.sleep(.2)
             return
     elif (topic == config.topics['sub_ping']):
-        ping_msg = msg
+        manage_data['ping_msg'] = msg
 
 
 def connect_and_subscribe():
@@ -150,7 +159,7 @@ def send_pong(msg, client):
     return
     
 def main():
-    global ping_msg
+    global client
     reset_out()
     wifi_init()
     client = mqtt_init()    
@@ -159,15 +168,19 @@ def main():
             client.check_msg()
         except OSError as e:
             client = mqtt_init()    
-        if ping_msg != b'':
-            send_pong(ping_msg, client)
-            ping_msg = b''
+        if manage_data['ping_msg'] != b'':
+            send_pong(manage_data['ping_msg'], client)
+            manage_data['ping_timestamp'] = (ujson.loads(manage_data['ping_msg'])).get('timestamp')
+            print(manage_data['ping_timestamp'])
+            manage_data['ping_millis'] = utime.ticks_ms()
+            print(manage_data['ping_millis'])
+            manage_data['ping_msg'] = b''
             continue
         if config.pins['RELAY_IN'].value() == 0 and manage_data['powerstate'] == 'OFF' :
-            change_state('AUX', client, 1)
+            change_state('AUX', 1)
             continue
         if config.pins['KBD_IN'].value() == 0 and manage_data['powerstate'] == 'AUX' :
-            change_state('PWR', client, 1)
+            change_state('PWR', 1)
 
 main()
 
